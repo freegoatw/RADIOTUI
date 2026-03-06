@@ -1,7 +1,7 @@
 from api import ping
 
 def UI_Landing():
-    print("\n  PX7 Terminal Radio")
+    print("\n\tPX7 Terminal Radio")
     UI_ShowPing()
     print("----------------------")
 
@@ -16,8 +16,7 @@ def UI_Menu():
 
 def UI_ShowPing():
         pingD = ping.GetPing()
-        print(f"Connection: {pingD['status']} | {pingD['ping']}\n")
-        pingD = ping.GetPing()
+        print(f"Connection: {pingD['status']} | {pingD['ping']}")
 
 def UI_ShowSongData(song):
-    print(f"Now Playing: {song.get("name")}\nCountry: {song.get("country")}")
+    print(f"\n🔊 Now Playing: {song.get("name")}\nCountry: {song.get("country")}\n")
