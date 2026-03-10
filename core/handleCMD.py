@@ -23,7 +23,8 @@ def handle_cmd(cmd: dict):
         if not cmd.get('action'):
             print("Command: play <indx>")
             return None
-        media_manager.play(int(cmd.get('action')) - 1)
+        timeout = int(cmd.get('timeout')) if cmd.get('timeout') else 5
+        media_manager.play(int(cmd.get('action')) - 1, timeout)
     
     elif cmd.get('sys') == "pause":
         media_manager.pause()

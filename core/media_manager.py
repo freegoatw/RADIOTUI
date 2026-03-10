@@ -55,8 +55,9 @@ def show_data(dat: list):
     print("No.\t Station name")
     for i in range(length):
         print(f"{i+1}\t {data[i].get("name")}")
+    print()
 
-def play(indx):
+def play(indx, timeout):
     length = len(data)
     if length == 0:
         print("Error: List Empty:\nUse after >> radio search <name>")
@@ -70,10 +71,8 @@ def play(indx):
     text = "Connecting"
     T1 = threading.Thread(target=preloader, daemon=True)
     T1.start()
-    
     player.play(data[indx].get("url"))
     text = "Connecting"
-    timeout = 5
     while True:
         time.sleep(0.2)
         timeout-=0.2
@@ -90,7 +89,11 @@ def play(indx):
         now_playing()
     else:
         stop()
-        print("Poor network quality")
+        print(
+            "Stream failed to respond.\n"
+            "Possible causes: slow network or unresponsive station.\n"
+            "Tip: try another station or increase timeout (>> play <index> --timeout=10)."
+        )
 
 def pause():
     player.pause()

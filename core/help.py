@@ -34,6 +34,8 @@ Examples
     >> radio search --order=clickcount
     >> radio search --order=votes --reverse=true
 
+More filters can be found at :: https://api.radio-browser.info
+
 ────────────────────────────────────────────────────────────
 SEARCH OPTIONS
 ────────────────────────────────────────────────────────────
@@ -66,6 +68,11 @@ PLAYBACK
 Play a station
 
     >> play <number>
+
+If the stream fails to load, try increasing the response wait time:
+
+    >> play <number> --timeout=10
+    (Default is 5s. Use this for slow networks or unstable servers.)
 
 Pause playback
 
