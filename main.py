@@ -2,13 +2,13 @@ from core import ui, parser, handleCMD
 
 def manage_input():
     while True:
-        dic = parser.parse(input(">> "))
-        if dic == -1:
+        cmd = parser.parse(input(">> "))
+        if cmd == -1:
+            exit()
+        if not cmd:
             continue
-        msg = handleCMD.handle_cmd(dic)
-        if not msg:
-            continue
-        print(msg)
+        handleCMD.handle_cmd(cmd)
+        
 
 
 def main():

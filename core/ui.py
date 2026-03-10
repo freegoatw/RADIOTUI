@@ -18,7 +18,7 @@ banner = """
 def welcome():
     print(banner)
     connection_status()
-    print(f"\nUseful commands:\n\t>> radio search <name>\n\t>> radio search --tag=TAGNAME --limit=10\n\t>> radio --help\n")
+    print(f"\nBasic commands:\n\t>> radio search <station name>\n\t>> play <station no.>\n\t>> pause\n\t>> ping\nFor more commands try:\n\t>> radio --help\n")
 
 
 def connection_status():

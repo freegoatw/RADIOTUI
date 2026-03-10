@@ -1,19 +1,18 @@
 def parse(inp: str):
     try:
-        if inp=="ping":
-            return {
-                'action': 'ping'
-            }
         tokens = inp.split()
+        
         if not tokens:
-            return -1
+            return None
         if tokens[0] == "quit" or tokens[0] == "exit" or tokens[0] == "logout":
-            exit()
-        
-        if tokens[0] == "radio" and len(tokens) < 2:
-            print("Unknown command")
             return -1
+
+        if len(tokens) == 1:
+            return {
+                'sys': tokens[0]
+            }
         
+        sys = tokens[0]
         action = tokens[1]
         flags = {}
         name_parts = []
@@ -28,12 +27,13 @@ def parse(inp: str):
 
         name = " ".join(name_parts) if name_parts else None
         out = {
+            'sys': sys,
             'action': action,
             'name': name
         }
         return out | flags
         
     except:
-        return -1
+        return None
     
     
