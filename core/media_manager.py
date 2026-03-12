@@ -1,11 +1,9 @@
-import vlc, sys, threading, time, os
-
-sys.stderr = open(os.devnull, "w")
+import vlc, sys, threading, time
 
 def check_vlc():
     try:
         vlc.Instance()
-    except:
+    except Exception:
         print("Error: VLC Media Player is not installed or not found in system PATH.")
         print("-" * 50)
 
