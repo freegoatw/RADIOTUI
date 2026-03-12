@@ -1,12 +1,17 @@
-import vlc, sys, threading, time
+import sys, threading, time
 
 def check_vlc():
+    try:
+        import vlc
+    except ImportError:
+        print("Error: python-vlc module is not installed.")
+        print("Install it with: pip install python-vlc")
+        sys.exit(1)
     try:
         vlc.Instance()
     except Exception:
         print("Error: VLC Media Player is not installed or not found in system PATH.")
         print("-" * 50)
-
         if sys.platform.startswith('win'):
             print("Download Windows version: https://www.videolan.org")
         elif sys.platform.startswith('darwin'):
@@ -14,8 +19,10 @@ def check_vlc():
         else:
             print("Install via your package manager (e.g., sudo apt install vlc)")
         print("-" * 50)
-        
-        exit(1)
+        sys.exit(1)
+    return vlc
+
+vlc = check_vlc()
 
 class Player:
     def __init__(self):
@@ -71,7 +78,7 @@ def show_data(dat: list):
         return None
     print(f"{'No.':<4} {'Station name':<40} {'Bitrate':<8}")
     for i, station in enumerate(data, 1):
-        print(f"{i:<4} {station.get("name"):<40} {station.get("bitrate"):<8}")
+        print(f"{i:<4} {station.get('name'):<40} {station.get('bitrate'):<8}")
     print()
 
 def play(indx, timeout):
