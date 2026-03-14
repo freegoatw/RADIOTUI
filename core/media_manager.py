@@ -1,4 +1,5 @@
 import sys, threading, time
+from servics import youtube_service as ys
 
 def check_vlc():
     try:
@@ -97,19 +98,28 @@ def show_data_yt(dat: list):
 def play(indx, timeout):
     length = len(data)
     if length == 0:
-        print("Error: List Empty:\nUse after >> radio search <name>")
+        print("Error: List Empty:\nSearch something first.")
         return None
     if indx < 0 or indx >= length:
         print("Error: Index Not in Range. . .")
         return None
-    global done, text, index
-    index = indx
+    global text, done, index
     done = False
-    text = "Connecting"
+    text = "Checking stream URL"
     T1 = threading.Thread(target=preloader, daemon=True)
     T1.start()
+    if not data[indx].get("url") and src=="yt":
+        text = "Collecting stream URL"
+        url = ys.get_stream_url(data[indx].get("video_url"))
+        if not url:
+            done = True
+            T1.join()
+            print("Error: Stream URL not found.")
+            return None
+        data[indx]["url"] = url
+    index = indx
+    text = "Loading"
     player.play(data[indx].get("url"))
-    text = "Connecting"
     while True:
         time.sleep(0.2)
         timeout-=0.2

@@ -18,7 +18,7 @@ def preloader():
 def search_yt(query, params: dict):
     global done, text
     done = False
-    text = "Connecting"
+    text = "Searching YouTube"
     T1 = threading.Thread(target=preloader, daemon=True)
     T1.start()
     if not params.get("no-postfix"):
@@ -52,10 +52,20 @@ def search_yt(query, params: dict):
             continue
         results.append({
             "name": entry.get('title'),
-            "url": entry.get("url"),
+            "video_url": f"https://youtube.com/watch?v={entry.get('id')}",
             "from": entry.get("uploader"),
             "duration": duration,
             "bitrate": "N.A."
         })
     print(f"Found: {len(results)} result(s)\n")
     return results
+
+def get_stream_url(video_url):
+    ydl_opt = {
+        "format": 'bestaudio[ext=m4a]/bestaudio',
+        'quiet': True,
+        'noplaylist':True
+    }
+    with yt_dlp.YoutubeDL(ydl_opt) as ydl:
+        info = ydl.extract_info(video_url, download=False)
+        return info["url"] or None

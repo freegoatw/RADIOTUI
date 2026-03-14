@@ -136,7 +136,6 @@ Example:
 >> yt search the weeknd lofi one hour --no-postfix
 ```
 
-
 ## License
 
 This project is licensed under the MIT License.  
