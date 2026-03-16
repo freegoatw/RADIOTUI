@@ -1,48 +1,20 @@
-import yt_dlp, sys, time, threading
+import yt_dlp
 from yt_dlp.utils import DownloadError
 from config import YDL_OPTIONS, DEFAULT_YT_SEARCH_LIMIT, DEFAULT_QUERY_POSTFIX
 
-done = True
-text = "Connecting"
 
-def preloader():
-    i = 1
-    while not done:
-        sys.stdout.write(f"\r\033[K{text}" + ". " * (i % 4))
-        sys.stdout.flush()
-        i+=1
-        time.sleep(0.2)
-    sys.stdout.write("\r\033[K")
-    sys.stdout.flush()
-
-def search_yt(query, params: dict):
-    global done, text
-    done = False
-    text = "Searching YouTube"
-    T1 = threading.Thread(target=preloader, daemon=True)
-    T1.start()
+def search_yt(query: str, params: dict):
     if not params.get("no-postfix"):
         query += DEFAULT_QUERY_POSTFIX
     limit = params.get("limit") or DEFAULT_YT_SEARCH_LIMIT
     try:
         with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
             info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
-        done = True
-        T1.join()
     except DownloadError as e:
-        done = True
-        T1.join()
-        print("Error: Timed out or Failed to fetch YouTube results:", e)
-        return None
+        raise RuntimeError(f"YouTube fetch failed: {e}")
     except Exception as e:
-        done = True
-        T1.join()
-        print(
-                    f"Error: {e}\n"
-                    "Try again. If error persists raise an issue on:\n"
-                    "https://github.com/px7nn/px7-radio/issues\n"
-                )
-        return None
+        raise RuntimeError(str(e))
+
     results = []
     for entry in info["entries"]:
         if not entry:
@@ -51,20 +23,20 @@ def search_yt(query, params: dict):
         if not duration:
             continue
         results.append({
-            "name": entry.get('title'),
+            "name": entry.get("title"),
             "video_url": f"https://youtube.com/watch?v={entry.get('id')}",
             "from": entry.get("uploader"),
             "duration": duration,
-            "bitrate": "N.A."
+            "bitrate": "N.A.",
         })
-    print(f"Found: {len(results)} result(s)\n")
     return results
 
-def get_stream_url(video_url):
+
+def get_stream_url(video_url: str):
     ydl_opt = {
-        "format": 'bestaudio[ext=m4a]/bestaudio',
-        'quiet': True,
-        'noplaylist':True
+        "format": "bestaudio[ext=m4a]/bestaudio",
+        "quiet": True,
+        "noplaylist": True,
     }
     with yt_dlp.YoutubeDL(ydl_opt) as ydl:
         info = ydl.extract_info(video_url, download=False)
