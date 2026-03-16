@@ -31,19 +31,17 @@ class StationItem(ListItem):
     def __init__(self, station: dict, fav: bool = False):
         super().__init__(Label(_fmt(station, fav)))
         self._station = station
-        self._fav = fav
 
     @property
     def station(self) -> dict:
         return self._station
 
     def refresh_label(self, fav: bool):
-        self._fav = fav
         self.query_one(Label).update(_fmt(self._station, fav))
 
 
 class StatusBar(Static):
-    msg: reactive[str] = reactive("Tape une recherche et appuie sur Entrée")
+    msg: reactive[str] = reactive("s chercher  ·  tab changer d'onglet  ·  entrée/espace jouer  ·  f favori  ·  p pause  ·  q quitter")
 
     def render(self) -> Text:
         m = self.msg
@@ -52,19 +50,53 @@ class StatusBar(Static):
         if m.startswith("✗"):
             return Text(m[1:].strip(), style="bold red")
         if m.startswith("⟳"):
-            return Text(m[1:].strip(), style="italic dim")
+            return Text(m[1:].strip(), style="italic yellow")
         return Text(m, style="dim")
 
 
 class StationList(ListView):
-    """ListView avec ses propres bindings pour ne pas conflicuer avec l'Input."""
+    """
+    La zone centrale. Contient tous les bindings de navigation.
+    L'utilisateur reste ici en permanence.
+    """
 
     BINDINGS = [
-        Binding("f", "favorite", "★ Favori", show=True),
+        Binding("tab",    "switch_tab",   "Onglet",   show=True),
+        Binding("t",      "switch_tab",   "",         show=False),
+        Binding("s",      "open_search",  "Chercher", show=True),
+        Binding("f",      "favorite",     "★ Favori", show=True),
+        Binding("space",  "play",         "Jouer",    show=True),
+        Binding("p",      "pause_resume", "Pause/▶",  show=True),
+        Binding("q",      "quit_app",     "Quitter",  show=True),
     ]
 
-    def action_favorite(self):
-        self.app.action_favorite()
+    # Délègue tout à l'app
+    def action_switch_tab(self):   self.app.action_switch_tab()
+    def action_open_search(self):  self.app.action_open_search()
+    def action_favorite(self):     self.app.action_favorite()
+    def action_pause_resume(self): self.app.action_pause_resume()
+    def action_quit_app(self):     self.app.exit()
+
+    def action_play(self):
+        """Space → jouer la sélection courante."""
+        if self.index is not None:
+            nodes = list(self._nodes)
+            if nodes:
+                item = nodes[self.index]
+                if isinstance(item, StationItem):
+                    self.app.play_station(item.station)
+
+
+class SearchInput(Input):
+    """Champ de recherche. Escape renvoie le focus sur la liste."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Annuler", show=True),
+    ]
+
+    def action_cancel(self):
+        self.clear()
+        self.app.action_close_search()
 
 
 # ─── App ──────────────────────────────────────────────────────────────────────
@@ -81,8 +113,11 @@ class RadioApp(App):
     StationList   { height: 1fr; }
 
     #search_bar {
-        height: auto;
+        height: 0;          /* caché par défaut */
         border-top: solid $accent-darken-2;
+    }
+    #search_bar.visible {
+        height: auto;
     }
     #search_input { width: 100%; }
 
@@ -93,14 +128,8 @@ class RadioApp(App):
     }
     """
 
-    # Bindings globaux avec priority=False : l'Input a la priorité sur ces touches
-    BINDINGS = [
-        Binding("p",      "pause_resume", "Pause/▶", show=True,  priority=False),
-        Binding("s",      "stop",         "Stop",     show=True,  priority=False),
-        Binding("t",      "switch_tab",   "Onglet",   show=True,  priority=False),
-        Binding("escape", "focus_list",   "Liste",    show=False, priority=False),
-        Binding("ctrl+c", "quit",         "Quitter",  show=True),
-    ]
+    # Pas de bindings App-level : tout est dans StationList et SearchInput
+    BINDINGS = []
 
     def __init__(self):
         super().__init__()
@@ -117,7 +146,7 @@ class RadioApp(App):
                 yield StationList(id="favs")
 
         with Vertical(id="search_bar"):
-            yield Input(
+            yield SearchInput(
                 placeholder="Chercher une radio…  (préfixe yt: pour YouTube)",
                 id="search_input",
             )
@@ -127,7 +156,7 @@ class RadioApp(App):
 
     def on_mount(self):
         self._reload_favs()
-        self.query_one("#search_input", Input).focus()
+        self._focus_list()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -154,21 +183,33 @@ class RadioApp(App):
         for s in self.favs:
             fav_lv.append(StationItem(s, fav=True))
 
+    def _focus_list(self):
+        self._active_list().focus()
+
     # ── Recherche ─────────────────────────────────────────────────────────────
+
+    def action_open_search(self):
+        bar = self.query_one("#search_bar")
+        bar.add_class("visible")
+        self.query_one("#search_input", SearchInput).focus()
+
+    def action_close_search(self):
+        bar = self.query_one("#search_bar")
+        bar.remove_class("visible")
+        self._focus_list()
 
     def on_input_submitted(self, event: Input.Submitted):
         query = event.value.strip()
+        self.action_close_search()
         if not query:
             return
-        event.input.clear()
         self._set_status(f"⟳ Recherche « {query} »…")
         threading.Thread(target=self._search, args=(query,), daemon=True).start()
 
     def _search(self, query: str):
         try:
             if query.lower().startswith("yt:"):
-                term = query[3:].strip()
-                results = ys.search_yt(term, {})
+                results = ys.search_yt(query[3:].strip(), {})
                 src = "yt"
             else:
                 results = rs.search({"name": query})
@@ -182,7 +223,7 @@ class RadioApp(App):
             self.call_from_thread(self._populate, results)
             self.call_from_thread(
                 self._set_status,
-                f"{len(results)} résultat(s) – ↑↓ naviguer, Entrée jouer, f favori"
+                f"{len(results)} résultat(s)  ·  entrée/espace jouer  ·  f favori"
             )
         except RuntimeError as e:
             self.call_from_thread(self._set_status, f"✗ {e}")
@@ -200,9 +241,11 @@ class RadioApp(App):
     # ── Lecture ───────────────────────────────────────────────────────────────
 
     def on_list_view_selected(self, event: ListView.Selected):
-        if not isinstance(event.item, StationItem):
-            return
-        station = event.item.station
+        """Enter dans la liste → jouer."""
+        if isinstance(event.item, StationItem):
+            self.play_station(event.item.station)
+
+    def play_station(self, station: dict):
         self._set_status(f"⟳ Chargement de {station.get('name', '')}…")
         threading.Thread(target=self._play, args=(station,), daemon=True).start()
 
@@ -235,15 +278,11 @@ class RadioApp(App):
     def action_pause_resume(self):
         if self.media.player.is_playing():
             self.media.player.pause()
-            self._set_status("⏸ Pause — appuie sur p pour reprendre")
+            self._set_status("⏸ Pause  ·  p pour reprendre")
         else:
             self.media.player.resume()
             s = self.media.get_current_station()
             self._set_status(f"♪ {s['name']}" if s else "▶ Reprise")
-
-    def action_stop(self):
-        self.media.player.stop()
-        self._set_status("Tape une recherche et appuie sur Entrée")
 
     # ── Favoris ───────────────────────────────────────────────────────────────
 
@@ -253,22 +292,18 @@ class RadioApp(App):
             return
         self.favs = toggle_favorite(station, self.favs)
         self._reload_favs()
-        # Refresh ★ dans la liste résultats
         for item in list(self.query_one("#results", StationList)._nodes):
             if isinstance(item, StationItem):
                 item.refresh_label(is_favorite(item.station, self.favs))
-        name = station.get("name", "")
         added = is_favorite(station, self.favs)
-        self._set_status(f"{'★ Ajouté aux' if added else '☆ Retiré des'} favoris : {name}")
+        self._set_status(f"{'★ Ajouté' if added else '☆ Retiré'}  ·  {station.get('name', '')}")
 
     # ── Navigation ────────────────────────────────────────────────────────────
-
-    def action_focus_list(self):
-        self._active_list().focus()
 
     def action_switch_tab(self):
         tc = self.query_one(TabbedContent)
         tc.active = "tab_favs" if tc.active == "tab_results" else "tab_results"
+        self._focus_list()
 
 
 if __name__ == "__main__":
