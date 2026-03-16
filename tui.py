@@ -223,10 +223,9 @@ class GenreScreen(ModalScreen):
     def compose(self) -> ComposeResult:
         with Vertical(id="genre_dialog"):
             yield Label("── Genres ──", id="genre_title")
-            lv = ListView(id="genre_list")
-            for label, tag in GENRES:
-                lv._append(GenreItem(label, tag))
-            yield lv
+            with ListView(id="genre_list"):
+                for label, tag in GENRES:
+                    yield GenreItem(label, tag)
 
     def on_mount(self):
         self.query_one("#genre_list", ListView).focus()
