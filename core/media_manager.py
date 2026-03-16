@@ -46,6 +46,22 @@ class Player:
     def is_playing(self) -> bool:
         return self.Player.is_playing()
 
+    def get_now_playing(self) -> str:
+        """Retourne le titre ICY en cours (NowPlaying > Title - Artist), ou ''."""
+        media = self.Player.get_media()
+        if not media:
+            return ""
+        # Forcer le refresh des métadonnées
+        media.parse_with_options(vlc.MediaParseFlag.local, 0)
+        now = media.get_meta(vlc.Meta.NowPlaying) or ""
+        if now:
+            return now
+        title  = media.get_meta(vlc.Meta.Title) or ""
+        artist = media.get_meta(vlc.Meta.Artist) or ""
+        if title and artist:
+            return f"{artist} – {title}"
+        return title or artist
+
 
 class MediaManager:
     def __init__(self):

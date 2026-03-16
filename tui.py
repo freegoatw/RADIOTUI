@@ -51,7 +51,7 @@ def _fmt(s: dict, fav: bool) -> str:
     return f"{name:<34} {country:<12} {bitrate:<6}{star}"
 
 
-def _meta_text(s: dict | None) -> Text:
+def _meta_text(s: dict | None, now_playing: str = "") -> Text:
     """Construit le texte du panneau de métadonnées."""
     t = Text()
     if s is None:
@@ -91,7 +91,6 @@ def _meta_text(s: dict | None) -> Text:
 
     homepage = s.get("homepage") or ""
     if homepage and not homepage.startswith("http://0"):
-        # Tronquer l'URL pour l'affichage
         disp = homepage.replace("https://", "").replace("http://", "")[:26]
         t.append(f"\n  {disp}\n", style="dim underline")
 
@@ -103,6 +102,11 @@ def _meta_text(s: dict | None) -> Text:
         t.append(f"  {mins}:{secs:02d}\n")
     if uploader and not country:
         t.append(f"  {uploader}\n", style="dim")
+
+    # ICY now playing
+    if now_playing:
+        t.append("\n♪ En cours\n", style="bold green")
+        t.append(f"  {now_playing}\n", style="green")
 
     return t
 
@@ -125,10 +129,11 @@ class StationItem(ListItem):
 class MetaPanel(Static):
     """Panneau latéral de métadonnées."""
 
-    station: reactive[dict | None] = reactive(None, layout=True)
+    station:     reactive[dict | None] = reactive(None, layout=True)
+    now_playing: reactive[str]         = reactive("", layout=True)
 
     def render(self) -> Text:
-        return _meta_text(self.station)
+        return _meta_text(self.station, self.now_playing)
 
 
 class StatusBar(Static):
@@ -307,6 +312,7 @@ class RadioApp(App):
         super().__init__()
         self.media = MediaManager()
         self.favs = load_favorites()
+        self._icy_stop = threading.Event()
 
     # ── Layout ────────────────────────────────────────────────────────────────
 
@@ -454,6 +460,8 @@ class RadioApp(App):
             self.play_station(event.item.station)
 
     def play_station(self, station: dict):
+        self._icy_stop.set()
+        self.query_one(MetaPanel).now_playing = ""
         self._set_status(f"⟳ Chargement de {station.get('name', '')}…")
         threading.Thread(target=self._play, args=(station,), daemon=True).start()
 
@@ -477,18 +485,41 @@ class RadioApp(App):
 
             if self.media.player.is_playing():
                 self.call_from_thread(self._set_status, f"♪ {station.get('name', '')}")
+                self._start_icy_poll()
             else:
                 self.media.player.stop()
                 self.call_from_thread(self._set_status, "✗ Stream injoignable (timeout)")
         except Exception as e:
             self.call_from_thread(self._set_status, f"✗ {e}")
 
+    def _start_icy_poll(self):
+        """Démarre le polling des métadonnées ICY en arrière-plan."""
+        self._icy_stop.set()          # Arrête un éventuel poll précédent
+        self._icy_stop.clear()
+        threading.Thread(target=self._icy_poll_loop, daemon=True).start()
+
+    def _icy_poll_loop(self):
+        """Boucle de polling : lit NowPlaying toutes les 5 s."""
+        last = ""
+        while not self._icy_stop.is_set():
+            if not self.media.player.is_playing():
+                break
+            track = self.media.player.get_now_playing()
+            if track != last:
+                last = track
+                self.call_from_thread(
+                    setattr, self.query_one(MetaPanel), "now_playing", track
+                )
+            self._icy_stop.wait(5)
+
     def action_pause_resume(self):
         if self.media.player.is_playing():
             self.media.player.pause()
+            self._icy_stop.set()
             self._set_status("⏸ Pause  ·  p pour reprendre")
         else:
             self.media.player.resume()
+            self._start_icy_poll()
             s = self.media.get_current_station()
             self._set_status(f"♪ {s['name']}" if s else "▶ Reprise")
 
@@ -512,6 +543,11 @@ class RadioApp(App):
         tc = self.query_one(TabbedContent)
         tc.active = "tab_favs" if tc.active == "tab_results" else "tab_results"
         self._focus_list()
+
+    # Nettoyage à la sortie
+    def on_unmount(self):
+        self._icy_stop.set()
+        self.media.player.stop()
 
 
 if __name__ == "__main__":
