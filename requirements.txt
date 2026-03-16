@@ -2,3 +2,4 @@ requests
 ping3
 python-vlc
 yt_dlp
+textual

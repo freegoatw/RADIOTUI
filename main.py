@@ -1,18 +1,5 @@
-from core import ui, parser, handleCMD
+from tui import RadioApp
 
-def manage_input():
-    while True:
-        cmd = parser.parse(input(">> "))
-        if cmd == -1:
-            exit()
-        if not cmd:
-            continue
-        handleCMD.handle_cmd(cmd)
-        
-
-
-def main():
-    ui.welcome()
-    manage_input()
-        
-main()
+if __name__ == "__main__":
+    app = RadioApp()
+    app.run()
