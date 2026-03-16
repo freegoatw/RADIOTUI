@@ -61,10 +61,16 @@ class MediaManager:
             self.data = []
             for d in dat:
                 station = {
-                    "name": d.get("name")[:35].strip(),
-                    "from": d.get("country"),
+                    "name": (d.get("name") or "")[:35].strip(),
+                    "from": d.get("country") or "",
+                    "countrycode": d.get("countrycode") or "",
                     "bitrate": d.get("bitrate") if d.get("bitrate") != 0 else "N.A.",
-                    "url": d.get("url_resolved")
+                    "url": d.get("url_resolved") or "",
+                    "codec": d.get("codec") or "",
+                    "language": d.get("language") or "",
+                    "tags": d.get("tags") or "",
+                    "votes": d.get("votes") or 0,
+                    "homepage": d.get("homepage") or "",
                 }
                 self.data.append(station)
         else:  # yt

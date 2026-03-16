@@ -3,8 +3,9 @@ import time
 
 from textual.app import ComposeResult, App
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
+from textual.screen import ModalScreen
 from textual.widgets import Footer, Input, Label, ListItem, ListView, Static, TabbedContent, TabPane
 from rich.text import Text
 
@@ -15,14 +16,95 @@ from services import youtube_service as ys
 import config
 
 
+# ─── Genres ───────────────────────────────────────────────────────────────────
+
+GENRES = [
+    ("Lofi",        "lofi"),
+    ("Jazz",        "jazz"),
+    ("Techno",      "techno"),
+    ("Electronic",  "electronic"),
+    ("Ambient",     "ambient"),
+    ("Classical",   "classical"),
+    ("Rock",        "rock"),
+    ("Metal",       "metal"),
+    ("Pop",         "pop"),
+    ("Hip-Hop",     "hip-hop"),
+    ("R&B / Soul",  "rnb"),
+    ("Blues",       "blues"),
+    ("Reggae",      "reggae"),
+    ("Folk",        "folk"),
+    ("Country",     "country"),
+    ("World",       "world"),
+    ("News",        "news"),
+    ("Talk",        "talk"),
+    ("Sports",      "sports"),
+]
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _fmt(s: dict, fav: bool) -> str:
-    name    = (s.get("name") or "")[:36]
+    name    = (s.get("name") or "")[:34]
     country = (s.get("from") or "")[:12]
     bitrate = str(s.get("bitrate") or "N.A.")[:6]
     star    = " ★" if fav else ""
-    return f"{name:<36} {country:<12} {bitrate:<6}{star}"
+    return f"{name:<34} {country:<12} {bitrate:<6}{star}"
+
+
+def _meta_text(s: dict | None) -> Text:
+    """Construit le texte du panneau de métadonnées."""
+    t = Text()
+    if s is None:
+        t.append("Sélectionne une station\npour voir les détails.", style="dim")
+        return t
+
+    name = s.get("name") or ""
+    t.append(f"{name}\n", style="bold")
+    t.append("─" * min(len(name) + 2, 28) + "\n", style="dim")
+
+    country = s.get("from") or ""
+    cc      = s.get("countrycode") or ""
+    if country:
+        label = f"{cc}  {country}" if cc else country
+        t.append(f"  {label}\n")
+
+    lang = s.get("language") or ""
+    if lang:
+        t.append(f"  {lang.title()}\n", style="dim")
+
+    bitrate = s.get("bitrate")
+    codec   = s.get("codec") or ""
+    if bitrate and bitrate != "N.A.":
+        spec = f"{bitrate} kbps"
+        if codec:
+            spec += f"  {codec.upper()}"
+        t.append(f"\n  {spec}\n")
+
+    tags = s.get("tags") or ""
+    if tags:
+        tag_list = [tg.strip() for tg in tags.split(",") if tg.strip()][:6]
+        t.append("\n  " + "  ".join(tag_list) + "\n", style="dim italic")
+
+    votes = s.get("votes")
+    if votes:
+        t.append(f"\n  ↑ {votes} votes\n", style="dim")
+
+    homepage = s.get("homepage") or ""
+    if homepage and not homepage.startswith("http://0"):
+        # Tronquer l'URL pour l'affichage
+        disp = homepage.replace("https://", "").replace("http://", "")[:26]
+        t.append(f"\n  {disp}\n", style="dim underline")
+
+    # YT extras
+    duration = s.get("duration")
+    uploader = s.get("from") or ""
+    if duration and not country:
+        mins, secs = divmod(int(duration), 60)
+        t.append(f"  {mins}:{secs:02d}\n")
+    if uploader and not country:
+        t.append(f"  {uploader}\n", style="dim")
+
+    return t
 
 
 # ─── Widgets ──────────────────────────────────────────────────────────────────
@@ -40,8 +122,19 @@ class StationItem(ListItem):
         self.query_one(Label).update(_fmt(self._station, fav))
 
 
+class MetaPanel(Static):
+    """Panneau latéral de métadonnées."""
+
+    station: reactive[dict | None] = reactive(None, layout=True)
+
+    def render(self) -> Text:
+        return _meta_text(self.station)
+
+
 class StatusBar(Static):
-    msg: reactive[str] = reactive("s chercher  ·  tab changer d'onglet  ·  entrée/espace jouer  ·  f favori  ·  p pause  ·  q quitter")
+    msg: reactive[str] = reactive(
+        "s chercher  ·  g genres  ·  tab onglet  ·  entrée/espace jouer  ·  f favori  ·  p pause  ·  q quitter"
+    )
 
     def render(self) -> Text:
         m = self.msg
@@ -55,48 +148,92 @@ class StatusBar(Static):
 
 
 class StationList(ListView):
-    """
-    La zone centrale. Contient tous les bindings de navigation.
-    L'utilisateur reste ici en permanence.
-    """
+    """Zone centrale — contient tous les raccourcis."""
 
     BINDINGS = [
-        Binding("tab",    "switch_tab",   "Onglet",   show=True),
-        Binding("t",      "switch_tab",   "",         show=False),
-        Binding("s",      "open_search",  "Chercher", show=True),
-        Binding("f",      "favorite",     "★ Favori", show=True),
-        Binding("space",  "play",         "Jouer",    show=True),
-        Binding("p",      "pause_resume", "Pause/▶",  show=True),
-        Binding("q",      "quit_app",     "Quitter",  show=True),
+        Binding("tab",   "switch_tab",   "Onglet",   show=True),
+        Binding("t",     "switch_tab",   "",         show=False),
+        Binding("s",     "open_search",  "Chercher", show=True),
+        Binding("g",     "open_genres",  "Genres",   show=True),
+        Binding("f",     "favorite",     "★ Favori", show=True),
+        Binding("space", "play",         "Jouer",    show=True),
+        Binding("p",     "pause_resume", "Pause/▶",  show=True),
+        Binding("q",     "quit_app",     "Quitter",  show=True),
     ]
 
-    # Délègue tout à l'app
     def action_switch_tab(self):   self.app.action_switch_tab()
     def action_open_search(self):  self.app.action_open_search()
+    def action_open_genres(self):  self.app.action_open_genres()
     def action_favorite(self):     self.app.action_favorite()
     def action_pause_resume(self): self.app.action_pause_resume()
     def action_quit_app(self):     self.app.exit()
 
     def action_play(self):
-        """Space → jouer la sélection courante."""
         if self.index is not None:
             nodes = list(self._nodes)
-            if nodes:
-                item = nodes[self.index]
-                if isinstance(item, StationItem):
-                    self.app.play_station(item.station)
+            if nodes and isinstance(nodes[self.index], StationItem):
+                self.app.play_station(nodes[self.index].station)
 
 
 class SearchInput(Input):
-    """Champ de recherche. Escape renvoie le focus sur la liste."""
-
-    BINDINGS = [
-        Binding("escape", "cancel", "Annuler", show=True),
-    ]
+    BINDINGS = [Binding("escape", "cancel", "Annuler", show=True)]
 
     def action_cancel(self):
         self.clear()
         self.app.action_close_search()
+
+
+# ─── Genre Screen (modal) ─────────────────────────────────────────────────────
+
+class GenreItem(ListItem):
+    def __init__(self, label: str, tag: str):
+        super().__init__(Label(label))
+        self.tag = tag
+
+
+class GenreScreen(ModalScreen):
+    CSS = """
+    GenreScreen {
+        align: center middle;
+    }
+    #genre_dialog {
+        width: 32;
+        height: auto;
+        max-height: 28;
+        border: solid $accent;
+        background: $surface;
+        padding: 0 1;
+    }
+    #genre_title {
+        text-align: center;
+        padding: 1 0 0 0;
+        color: $accent;
+    }
+    #genre_list {
+        height: auto;
+        max-height: 22;
+    }
+    """
+
+    BINDINGS = [Binding("escape", "dismiss_screen", "Fermer", show=True)]
+
+    def action_dismiss_screen(self):
+        self.dismiss(None)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="genre_dialog"):
+            yield Label("── Genres ──", id="genre_title")
+            lv = ListView(id="genre_list")
+            for label, tag in GENRES:
+                lv._append(GenreItem(label, tag))
+            yield lv
+
+    def on_mount(self):
+        self.query_one("#genre_list", ListView).focus()
+
+    def on_list_view_selected(self, event: ListView.Selected):
+        if isinstance(event.item, GenreItem):
+            self.dismiss(event.item.tag)
 
 
 # ─── App ──────────────────────────────────────────────────────────────────────
@@ -108,27 +245,38 @@ class RadioApp(App):
     CSS = """
     Screen { layout: vertical; }
 
+    #body {
+        layout: horizontal;
+        height: 1fr;
+    }
+
+    #left { width: 1fr; }
+
     TabbedContent { height: 1fr; }
     TabPane       { padding: 0; }
     StationList   { height: 1fr; }
 
+    #meta {
+        width: 30;
+        border-left: solid $accent-darken-2;
+        padding: 0 1;
+        background: $panel;
+    }
+
     #search_bar {
-        height: 0;          /* caché par défaut */
+        height: 0;
         border-top: solid $accent-darken-2;
     }
-    #search_bar.visible {
-        height: auto;
-    }
-    #search_input { width: 100%; }
+    #search_bar.visible { height: auto; }
+    #search_input       { width: 100%; }
 
     #status {
         height: 1;
-        background: $panel;
+        background: $panel-darken-1;
         padding: 0 1;
     }
     """
 
-    # Pas de bindings App-level : tout est dans StationList et SearchInput
     BINDINGS = []
 
     def __init__(self):
@@ -139,11 +287,15 @@ class RadioApp(App):
     # ── Layout ────────────────────────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
-        with TabbedContent(id="tabs", initial="tab_results"):
-            with TabPane("Résultats", id="tab_results"):
-                yield StationList(id="results")
-            with TabPane("Favoris", id="tab_favs"):
-                yield StationList(id="favs")
+        with Horizontal(id="body"):
+            with Vertical(id="left"):
+                with TabbedContent(id="tabs", initial="tab_results"):
+                    with TabPane("Résultats", id="tab_results"):
+                        yield StationList(id="results")
+                    with TabPane("Favoris", id="tab_favs"):
+                        yield StationList(id="favs")
+
+            yield MetaPanel(id="meta")
 
         with Vertical(id="search_bar"):
             yield SearchInput(
@@ -186,16 +338,22 @@ class RadioApp(App):
     def _focus_list(self):
         self._active_list().focus()
 
+    # ── MetaPanel ─────────────────────────────────────────────────────────────
+
+    def on_list_view_highlighted(self, event: ListView.Highlighted):
+        if isinstance(event.item, StationItem):
+            self.query_one(MetaPanel).station = event.item.station
+        elif event.item is None:
+            self.query_one(MetaPanel).station = None
+
     # ── Recherche ─────────────────────────────────────────────────────────────
 
     def action_open_search(self):
-        bar = self.query_one("#search_bar")
-        bar.add_class("visible")
+        self.query_one("#search_bar").add_class("visible")
         self.query_one("#search_input", SearchInput).focus()
 
     def action_close_search(self):
-        bar = self.query_one("#search_bar")
-        bar.remove_class("visible")
+        self.query_one("#search_bar").remove_class("visible")
         self._focus_list()
 
     def on_input_submitted(self, event: Input.Submitted):
@@ -223,7 +381,26 @@ class RadioApp(App):
             self.call_from_thread(self._populate, results)
             self.call_from_thread(
                 self._set_status,
-                f"{len(results)} résultat(s)  ·  entrée/espace jouer  ·  f favori"
+                f"{len(results)} résultat(s)  ·  entrée/espace jouer  ·  f favori",
+            )
+        except RuntimeError as e:
+            self.call_from_thread(self._set_status, f"✗ {e}")
+
+    def _search_by_tag(self, tag: str):
+        self._set_status(f"⟳ Chargement du genre « {tag} »…")
+        threading.Thread(target=self._search_tag_thread, args=(tag,), daemon=True).start()
+
+    def _search_tag_thread(self, tag: str):
+        try:
+            results = rs.search({"tag": tag, "order": "votes", "reverse": "true"})
+            if not results:
+                self.call_from_thread(self._set_status, f"✗ Aucun résultat pour « {tag} »")
+                return
+            self.media.set_results(results, "radio")
+            self.call_from_thread(self._populate, results)
+            self.call_from_thread(
+                self._set_status,
+                f"{len(results)} résultat(s) — {tag}  ·  entrée/espace jouer  ·  f favori",
             )
         except RuntimeError as e:
             self.call_from_thread(self._set_status, f"✗ {e}")
@@ -238,10 +415,17 @@ class RadioApp(App):
         self.query_one(TabbedContent).active = "tab_results"
         lv.focus()
 
+    # ── Genre screen ──────────────────────────────────────────────────────────
+
+    def action_open_genres(self):
+        def on_genre(tag: str | None):
+            if tag:
+                self._search_by_tag(tag)
+        self.push_screen(GenreScreen(), on_genre)
+
     # ── Lecture ───────────────────────────────────────────────────────────────
 
     def on_list_view_selected(self, event: ListView.Selected):
-        """Enter dans la liste → jouer."""
         if isinstance(event.item, StationItem):
             self.play_station(event.item.station)
 
