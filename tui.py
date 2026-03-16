@@ -175,6 +175,31 @@ class StationList(ListView):
                 self.app.play_station(nodes[self.index].station)
 
 
+def _parse_search(query: str) -> dict:
+    """
+    Parse le query de recherche en paramètres API.
+    Supporte : jazz  /  NRJ  /  jazz --country=france  /  --tag=lofi --limit=50
+    """
+    params: dict = {}
+    name_parts: list[str] = []
+
+    for token in query.split():
+        if token.startswith("--"):
+            key, sep, val = token[2:].partition("=")
+            params[key] = val if sep else "true"
+        else:
+            name_parts.append(token)
+
+    if name_parts:
+        params["name"] = " ".join(name_parts)
+
+    # Tri par votes par défaut (les plus populaires d'abord)
+    params.setdefault("order", "votes")
+    params.setdefault("reverse", "true")
+
+    return params
+
+
 class SearchInput(Input):
     BINDINGS = [Binding("escape", "cancel", "Annuler", show=True)]
 
@@ -298,7 +323,7 @@ class RadioApp(App):
 
         with Vertical(id="search_bar"):
             yield SearchInput(
-                placeholder="Chercher une radio…  (préfixe yt: pour YouTube)",
+                placeholder="NRJ  /  jazz --country=france  /  --tag=lofi --limit=50  /  yt: joji",
                 id="search_input",
             )
 
@@ -369,7 +394,7 @@ class RadioApp(App):
                 results = ys.search_yt(query[3:].strip(), {})
                 src = "yt"
             else:
-                results = rs.search({"name": query})
+                results = rs.search(_parse_search(query))
                 src = "radio"
 
             if not results:
