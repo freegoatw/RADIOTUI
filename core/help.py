@@ -1,6 +1,6 @@
 HELP_PAGE = """
 ════════════════════════════════════════════════════════════════════════
-                         PX7 TERMINAL RADIO
+                           DABZ RADIO
 ════════════════════════════════════════════════════════════════════════
 
 Stream internet radio and YouTube audio directly from your terminal.

@@ -1,5 +1,38 @@
 import sys
+import logging
+from datetime import datetime
 from services import youtube_service as ys
+
+# ── Debug metadata ─────────────────────────────────────────────────────────────
+# Passe DEBUG_META=True pour loguer tous les champs VLC dans /tmp/radio_meta.log
+DEBUG_META = False
+
+logging.basicConfig(
+    filename="/tmp/radio_meta.log",
+    level=logging.DEBUG,
+    format="%(message)s",
+)
+
+_ALL_META = [
+    "Title", "Artist", "Genre", "Copyright", "Album", "TrackNumber",
+    "Description", "Rating", "Date", "Setting", "URL", "Language",
+    "NowPlaying", "Publisher", "EncodedBy", "ArtworkURL", "TrackID",
+    "TrackTotal", "Director", "Season", "Episode", "ShowName", "Actors",
+    "AlbumArtist", "DiscNumber", "DiscTotal",
+]
+
+def _debug_meta(media) -> None:
+    """Logue tous les champs vlc.Meta disponibles."""
+    ts = datetime.now().strftime("%H:%M:%S")
+    lines = [f"\n{'─'*50}", f"[{ts}] METADATA DUMP"]
+    for name in _ALL_META:
+        attr = getattr(vlc.Meta, name, None)
+        if attr is None:
+            continue
+        val = media.get_meta(attr)
+        if val:
+            lines.append(f"  {name:<16} = {val}")
+    logging.debug("\n".join(lines))
 
 
 def check_vlc():
@@ -21,6 +54,15 @@ def check_vlc():
 
 
 vlc = check_vlc()
+
+
+def _parse_stream_title(s: str) -> tuple[str, str]:
+    """Tente de parser 'Artist - Title' depuis un StreamTitle ICY."""
+    for sep in (" - ", " – ", " | ", " / "):
+        if sep in s:
+            artist, title = s.split(sep, 1)
+            return artist.strip(), title.strip()
+    return "", s.strip()
 
 
 class Player:
@@ -46,21 +88,33 @@ class Player:
     def is_playing(self) -> bool:
         return self.Player.is_playing()
 
-    def get_now_playing(self) -> str:
-        """Retourne le titre ICY en cours (NowPlaying > Title - Artist), ou ''."""
+    def get_now_playing(self) -> dict:
+        """Retourne les métadonnées ICY en cours sous forme de dict, ou {} si rien."""
         media = self.Player.get_media()
         if not media:
-            return ""
-        # Forcer le refresh des métadonnées
-        media.parse_with_options(vlc.MediaParseFlag.local, 0)
-        now = media.get_meta(vlc.Meta.NowPlaying) or ""
-        if now:
-            return now
+            return {}
+        raw    = media.get_meta(vlc.Meta.NowPlaying) or ""
         title  = media.get_meta(vlc.Meta.Title) or ""
         artist = media.get_meta(vlc.Meta.Artist) or ""
-        if title and artist:
-            return f"{artist} – {title}"
-        return title or artist
+        album  = media.get_meta(vlc.Meta.Album) or ""
+        genre  = media.get_meta(vlc.Meta.Genre) or ""
+
+        if DEBUG_META:
+            _debug_meta(media)
+
+        # NowPlaying vide ou juste un séparateur (ex: " - ") → on ignore
+        if raw and not raw.strip(" -–|/"):
+            raw = ""
+
+        # Title seul sans NowPlaying ni Artist = nom du mountpoint/stream, pas un morceau
+        if not raw and not artist:
+            return {}
+
+        # ICY streams: si VLC n'a pas splitté, on parse StreamTitle manuellement
+        if raw and not artist and not title:
+            artist, title = _parse_stream_title(raw)
+
+        return {"raw": raw, "artist": artist, "title": title, "album": album, "genre": genre}
 
 
 class MediaManager:

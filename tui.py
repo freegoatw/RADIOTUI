@@ -43,34 +43,38 @@ GENRES = [
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def _fmt(s: dict, fav: bool) -> str:
-    name    = (s.get("name") or "")[:34]
-    country = (s.get("from") or "")[:12]
-    bitrate = str(s.get("bitrate") or "N.A.")[:6]
-    star    = " ★" if fav else ""
-    return f"{name:<34} {country:<12} {bitrate:<6}{star}"
+def _fmt(s: dict, fav: bool) -> Text:
+    t = Text(no_wrap=True, overflow="ellipsis")
+    name    = (s.get("name") or "")[:32]
+    country = (s.get("from") or "")[:10]
+    bitrate = str(s.get("bitrate") or "—")[:5]
+    t.append(f" {name:<32} ", style="bold")
+    t.append(f"{country:<10} ", style="cyan dim")
+    t.append(f"{bitrate:>5}", style="#ffaf00 dim")
+    if fav:
+        t.append("  ★", style="bold yellow")
+    return t
 
 
-def _meta_text(s: dict | None, now_playing: str = "") -> Text:
-    """Construit le texte du panneau de métadonnées."""
+def _meta_text(s: dict | None, now_playing: dict | None = None) -> Text:
     t = Text()
     if s is None:
-        t.append("Sélectionne une station\npour voir les détails.", style="dim")
+        t.append("\n  Sélectionne une\n  station...", style="dim italic")
         return t
 
     name = s.get("name") or ""
-    t.append(f"{name}\n", style="bold")
-    t.append("─" * min(len(name) + 2, 28) + "\n", style="dim")
+    t.append(f"\n  {name}\n", style="bold")
+    t.append("  " + "╌" * min(len(name), 26) + "\n\n", style="dim")
 
     country = s.get("from") or ""
     cc      = s.get("countrycode") or ""
     if country:
         label = f"{cc}  {country}" if cc else country
-        t.append(f"  {label}\n")
+        t.append(f"  ⚑  {label}\n", style="cyan")
 
     lang = s.get("language") or ""
     if lang:
-        t.append(f"  {lang.title()}\n", style="dim")
+        t.append(f"  ◌  {lang.title()}\n", style="dim")
 
     bitrate = s.get("bitrate")
     codec   = s.get("codec") or ""
@@ -78,35 +82,42 @@ def _meta_text(s: dict | None, now_playing: str = "") -> Text:
         spec = f"{bitrate} kbps"
         if codec:
             spec += f"  {codec.upper()}"
-        t.append(f"\n  {spec}\n")
+        t.append(f"\n  ◈  {spec}\n", style="#ffaf00")
 
     tags = s.get("tags") or ""
     if tags:
-        tag_list = [tg.strip() for tg in tags.split(",") if tg.strip()][:6]
-        t.append("\n  " + "  ".join(tag_list) + "\n", style="dim italic")
+        tag_list = [tg.strip() for tg in tags.split(",") if tg.strip()][:5]
+        t.append("\n  " + "  ".join(f"#{tg}" for tg in tag_list) + "\n", style="dim cyan")
 
     votes = s.get("votes")
     if votes:
-        t.append(f"\n  ↑ {votes} votes\n", style="dim")
+        t.append(f"\n  ↑  {votes} votes\n", style="dim green")
 
     homepage = s.get("homepage") or ""
     if homepage and not homepage.startswith("http://0"):
         disp = homepage.replace("https://", "").replace("http://", "")[:26]
-        t.append(f"\n  {disp}\n", style="dim underline")
+        t.append(f"\n  ↗  {disp}\n", style="dim underline")
 
     # YT extras
     duration = s.get("duration")
     uploader = s.get("from") or ""
     if duration and not country:
         mins, secs = divmod(int(duration), 60)
-        t.append(f"  {mins}:{secs:02d}\n")
+        t.append(f"  ◷  {mins}:{secs:02d}\n")
     if uploader and not country:
-        t.append(f"  {uploader}\n", style="dim")
+        t.append(f"  ◌  {uploader}\n", style="dim")
 
-    # ICY now playing
     if now_playing:
-        t.append("\n♪ En cours\n", style="bold green")
-        t.append(f"  {now_playing}\n", style="green")
+        title  = now_playing.get("title") or now_playing.get("raw") or ""
+        artist = now_playing.get("artist") or ""
+        album  = now_playing.get("album") or ""
+        t.append("\n  ♫  Now playing\n", style="bold green")
+        if title:
+            t.append(f"  {title}\n", style="green italic")
+        if artist:
+            t.append(f"  ◌  {artist}\n", style="green dim")
+        if album:
+            t.append(f"  ◈  {album}\n", style="green dim")
 
     return t
 
@@ -130,7 +141,7 @@ class MetaPanel(Static):
     """Panneau latéral de métadonnées."""
 
     station:     reactive[dict | None] = reactive(None, layout=True)
-    now_playing: reactive[str]         = reactive("", layout=True)
+    now_playing: reactive[dict | None] = reactive(None, layout=True)
 
     def render(self) -> Text:
         return _meta_text(self.station, self.now_playing)
@@ -138,17 +149,22 @@ class MetaPanel(Static):
 
 class StatusBar(Static):
     msg: reactive[str] = reactive(
-        "s chercher  ·  g genres  ·  tab onglet  ·  entrée/espace jouer  ·  f favori  ·  p pause  ·  q quitter"
+        "  s chercher  ·  g genres  ·  tab onglet  ·  espace jouer  ·  f favori  ·  p pause"
     )
 
     def render(self) -> Text:
         m = self.msg
         if m.startswith("♪"):
-            return Text(m, style="bold green")
+            t = Text()
+            t.append(" ♪ ", style="bold green on #1a2e1a")
+            t.append(f" {m[1:].strip()}", style="green")
+            return t
+        if m.startswith("⏸"):
+            return Text(f"  {m}", style="yellow")
         if m.startswith("✗"):
-            return Text(m[1:].strip(), style="bold red")
+            return Text(f"  ✗  {m[1:].strip()}", style="bold red")
         if m.startswith("⟳"):
-            return Text(m[1:].strip(), style="italic yellow")
+            return Text(f"  ⟳  {m[1:].strip()}", style="italic #87ceeb")
         return Text(m, style="dim")
 
 
@@ -198,7 +214,6 @@ def _parse_search(query: str) -> dict:
     if name_parts:
         params["name"] = " ".join(name_parts)
 
-    # Tri par votes par défaut (les plus populaires d'abord)
     params.setdefault("order", "votes")
     params.setdefault("reverse", "true")
 
@@ -227,21 +242,25 @@ class GenreScreen(ModalScreen):
         align: center middle;
     }
     #genre_dialog {
-        width: 32;
+        width: 34;
         height: auto;
-        max-height: 28;
-        border: solid $accent;
+        max-height: 30;
+        border: round $accent;
         background: $surface;
-        padding: 0 1;
+        padding: 0;
     }
     #genre_title {
         text-align: center;
-        padding: 1 0 0 0;
+        padding: 1 0;
         color: $accent;
+        text-style: bold;
+        border-bottom: solid $accent-darken-2;
     }
     #genre_list {
         height: auto;
-        max-height: 22;
+        max-height: 24;
+        padding: 0 1;
+        background: $surface;
     }
     """
 
@@ -252,7 +271,7 @@ class GenreScreen(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="genre_dialog"):
-            yield Label("── Genres ──", id="genre_title")
+            yield Label("◉  Genres", id="genre_title")
             with ListView(id="genre_list"):
                 for label, tag in GENRES:
                     yield GenreItem(label, tag)
@@ -267,12 +286,27 @@ class GenreScreen(ModalScreen):
 
 # ─── App ──────────────────────────────────────────────────────────────────────
 
+COL_HEADER = Text.assemble(
+    (" NAME                              ", "dim"),
+    ("COUNTRY    ", "cyan dim"),
+    ("KBPS", "#ffaf00 dim"),
+)
+
+
 class RadioApp(App):
-    TITLE = "PX7 Terminal Radio"
+    TITLE = "Dabz Radio"
     ANIMATE_ON_SCROLL = False
 
     CSS = """
     Screen { layout: vertical; }
+
+    #header {
+        height: 1;
+        background: $panel-darken-1;
+        color: $accent;
+        text-style: bold;
+        padding: 0 2;
+    }
 
     #body {
         layout: horizontal;
@@ -283,26 +317,53 @@ class RadioApp(App):
 
     TabbedContent { height: 1fr; }
     TabPane       { padding: 0; }
-    StationList   { height: 1fr; }
+
+    .col-header {
+        height: 1;
+        background: $panel-darken-1;
+        padding: 0;
+        border-bottom: solid $accent-darken-2;
+    }
+
+    StationList {
+        height: 1fr;
+        scrollbar-size: 1 1;
+        scrollbar-color: $accent-darken-2;
+        scrollbar-background: $panel;
+    }
+
+    StationList > ListItem {
+        padding: 0;
+    }
 
     #meta {
-        width: 30;
+        width: 34;
         border-left: solid $accent-darken-2;
-        padding: 0 1;
+        padding: 0;
         background: $panel;
     }
 
     #search_bar {
         height: 0;
+    }
+    #search_bar.visible {
+        height: 3;
         border-top: solid $accent-darken-2;
     }
-    #search_bar.visible { height: auto; }
-    #search_input       { width: 100%; }
+    #search_icon {
+        width: 5;
+        height: 3;
+        content-align: center middle;
+        color: $accent;
+        text-style: bold;
+        background: $panel-darken-1;
+    }
+    #search_input { width: 1fr; }
 
     #status {
         height: 1;
-        background: $panel-darken-1;
-        padding: 0 1;
+        background: $panel-darken-2;
+        padding: 0;
     }
     """
 
@@ -317,17 +378,22 @@ class RadioApp(App):
     # ── Layout ────────────────────────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
+        yield Static("◉  DABZ RADIO", id="header")
+
         with Horizontal(id="body"):
             with Vertical(id="left"):
                 with TabbedContent(id="tabs", initial="tab_results"):
                     with TabPane("Résultats", id="tab_results"):
+                        yield Static(COL_HEADER, classes="col-header")
                         yield StationList(id="results")
-                    with TabPane("Favoris", id="tab_favs"):
+                    with TabPane("Favoris ★", id="tab_favs"):
+                        yield Static(COL_HEADER, classes="col-header")
                         yield StationList(id="favs")
 
             yield MetaPanel(id="meta")
 
-        with Vertical(id="search_bar"):
+        with Horizontal(id="search_bar"):
+            yield Label("⌕", id="search_icon")
             yield SearchInput(
                 placeholder="NRJ  /  jazz --country=france  /  --tag=lofi --limit=50  /  yt: joji",
                 id="search_input",
@@ -411,7 +477,7 @@ class RadioApp(App):
             self.call_from_thread(self._populate, results)
             self.call_from_thread(
                 self._set_status,
-                f"{len(results)} résultat(s)  ·  entrée/espace jouer  ·  f favori",
+                f"♪ {len(results)} résultat(s)  ·  espace jouer  ·  f favori",
             )
         except RuntimeError as e:
             self.call_from_thread(self._set_status, f"✗ {e}")
@@ -430,7 +496,7 @@ class RadioApp(App):
             self.call_from_thread(self._populate, results)
             self.call_from_thread(
                 self._set_status,
-                f"{len(results)} résultat(s) — {tag}  ·  entrée/espace jouer  ·  f favori",
+                f"♪ {len(results)} résultat(s) — {tag}  ·  espace jouer  ·  f favori",
             )
         except RuntimeError as e:
             self.call_from_thread(self._set_status, f"✗ {e}")
@@ -461,7 +527,7 @@ class RadioApp(App):
 
     def play_station(self, station: dict):
         self._icy_stop.set()
-        self.query_one(MetaPanel).now_playing = ""
+        self.query_one(MetaPanel).now_playing = None
         self._set_status(f"⟳ Chargement de {station.get('name', '')}…")
         threading.Thread(target=self._play, args=(station,), daemon=True).start()
 
@@ -493,14 +559,12 @@ class RadioApp(App):
             self.call_from_thread(self._set_status, f"✗ {e}")
 
     def _start_icy_poll(self):
-        """Démarre le polling des métadonnées ICY en arrière-plan."""
-        self._icy_stop.set()          # Arrête un éventuel poll précédent
+        self._icy_stop.set()
         self._icy_stop.clear()
         threading.Thread(target=self._icy_poll_loop, daemon=True).start()
 
     def _icy_poll_loop(self):
-        """Boucle de polling : lit NowPlaying toutes les 5 s."""
-        last = ""
+        last = {}
         while not self._icy_stop.is_set():
             if not self.media.player.is_playing():
                 break
@@ -508,9 +572,9 @@ class RadioApp(App):
             if track != last:
                 last = track
                 self.call_from_thread(
-                    setattr, self.query_one(MetaPanel), "now_playing", track
+                    setattr, self.query_one(MetaPanel), "now_playing", track or None
                 )
-            self._icy_stop.wait(5)
+            self._icy_stop.wait(2)
 
     def action_pause_resume(self):
         if self.media.player.is_playing():
@@ -544,7 +608,6 @@ class RadioApp(App):
         tc.active = "tab_favs" if tc.active == "tab_results" else "tab_results"
         self._focus_list()
 
-    # Nettoyage à la sortie
     def on_unmount(self):
         self._icy_stop.set()
         self.media.player.stop()
